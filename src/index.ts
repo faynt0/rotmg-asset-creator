@@ -21,39 +21,10 @@ const cli_params = {
 let configURL = "./config.json"
 let defaultConfig = "./default_config.json"
 
-for (let i = 0; i < args.length; i += 2) {
-    const command = args[i];
-    const value = args[i + 1];
-
-    switch (command) {
-        case "--config":
-            configURL = value;
-            break;
-		case "--resources":
-			cli_params["resources"] = value
-			break;
-		case "--dest":
-			cli_params["dest"] = value
-			break;
-    }
-}
-
 let defaultParams = JSON.parse(fs.readFileSync(defaultConfig, "utf-8"))
 Object.keys(cli_params).forEach(function(key) {
     if ( cli_params[key] === undefined ) cli_params[key] = defaultParams[key];
 });
-
-let missing = [];
-Object.keys(cli_params).forEach(function(key) {
-    if ( cli_params[key] === undefined ) missing.push("--" + key);
-});
-
-if ( missing.length > 0 ) {
-	
-	console.log("Missing required arguments: ", missing);
-	process.exit()
-
-}
 
 const atlasMapper = {
     1: "groundTiles",

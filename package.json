@@ -5,7 +5,8 @@
   "main": "out/index.js",
   "scripts": {
     "build": "rollup -c",
-    "watch": "rollup -cw"
+    "watch": "rollup -cw",
+    "rip": "node out/index.js"
   },
   "author": "",
   "license": "ISC",

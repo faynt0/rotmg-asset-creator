@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { Sprite } from '../deca/sprite.js';
+import { Sprite } from '../deca/sprite';
 
 
 export class SpriteSheet {

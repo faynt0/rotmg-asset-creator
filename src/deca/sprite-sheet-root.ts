@@ -4,8 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { AnimatedSprite } from '../deca/animated-sprite.js';
-import { SpriteSheet } from '../deca/sprite-sheet.js';
+import { AnimatedSprite } from '../deca/animated-sprite';
+import { SpriteSheet } from '../deca/sprite-sheet';
 
 
 export class SpriteSheetRoot {

@@ -4,8 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { Color } from '../deca/color.js';
-import { Position } from '../deca/position.js';
+import { Color } from '../deca/color';
+import { Position } from '../deca/position';
 
 
 export class Sprite {

@@ -24,5 +24,9 @@ export default {
         file: "out/index.js",
         format: "cjs"
     },
+    external: [
+        'fs', 'path', 'process', 'zlib',
+        'canvas', 'fast-xml-parser', 'flatbuffers'
+    ],
     plugins: [resolveTs, typescript()]
 }

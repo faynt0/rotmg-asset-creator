@@ -42,23 +42,7 @@ npm run watch
 3. Run:
 
 ```bash
-node out/index.js
-```
-
-### Command-Line Arguments
-
-| Argument | Description |
-|---|---|
-| `--resources <path>` | Path to the RotMG `resources.assets` file |
-| `--dest <path>` | Output directory for generated content |
-| `--config <path>` | Path to a custom `config.json` (default: `./config.json`) |
-
-Arguments override values in `default_config.json`.
-
-**Example:**
-
-```bash
-node out/index.js --resources /path/to/resources.assets --dest /path/to/output
+npm run rip
 ```
 
 ### Configuration

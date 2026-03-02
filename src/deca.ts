@@ -2,9 +2,9 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export { AnimatedSprite } from './deca/animated-sprite.js';
-export { Color } from './deca/color.js';
-export { Position } from './deca/position.js';
-export { Sprite } from './deca/sprite.js';
-export { SpriteSheet } from './deca/sprite-sheet.js';
-export { SpriteSheetRoot } from './deca/sprite-sheet-root.js';
+export { AnimatedSprite } from './deca/animated-sprite';
+export { Color } from './deca/color';
+export { Position } from './deca/position';
+export { Sprite } from './deca/sprite';
+export { SpriteSheet } from './deca/sprite-sheet';
+export { SpriteSheetRoot } from './deca/sprite-sheet-root';
