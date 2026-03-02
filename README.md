@@ -94,7 +94,8 @@ dest/
 ├── xml/              # Extracted XML game data
 └── render-output/
     ├── constants.js  # Item, class, skin, pet, and texture data
-    └── sheets.js     # Base64-encoded sprite sheets
+    ├── sheets.js     # Base64-encoded sprite sheets
+    └── renders.png   # Recompiled spritesheet
 ```
 
 ## Project Structure
