@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "module": "ES2015",
+        "downlevelIteration": true,
+        "lib": ["ES2015"],
+        "moduleResolution": "node"
+    },
+    "exclude": [
+        "node_modules"
+    ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "rotmg-spritesheet-recompiler",
+  "version": "1.1.0",
+  "description": "",
+  "main": "out/index.js",
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -cw"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "canvas": "^2.9.0",
+    "fast-xml-parser": "^3.17.4",
+    "flatbuffers": "^24.3.7",
+    "nan": "^2.19.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-typescript": "^6.1.0",
+    "@types/node": "^14.14.6",
+    "rollup": "^2.33.1",
+    "schema": "file: schema.ts",
+    "tslib": "^2.0.3",
+    "typescript": "^4.0.5"
+  }
+}

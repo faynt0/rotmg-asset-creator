@@ -1,0 +1,48 @@
+namespace Deca;
+
+struct Position {
+  X: float;
+  Y: float;
+  H: float;
+  W: float;
+}
+
+struct Color {
+  R: float;
+  G: float;
+  B: float;
+  A: float;
+}
+
+table Sprite {
+  position: Position;
+  mask_position: Position;
+  padding: int;
+  index: uint;
+  most_common_color: Color;
+  is_t: bool;
+  sprite_sheet_name: string;
+  a_id: ulong;
+}
+
+table SpriteSheet {
+  name: string;
+  atlas_id: ulong;
+  sprites: [Sprite];
+}
+
+table AnimatedSprite {
+  name: string;
+  index: uint;
+  set: uint;
+  direction: uint;
+  action: uint;
+  sprite: Sprite;
+}
+
+table SpriteSheetRoot {
+  sprites: [SpriteSheet];
+  animated_sprites: [AnimatedSprite];
+}
+
+root_type SpriteSheetRoot;

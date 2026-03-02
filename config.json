@@ -1,0 +1,22 @@
+{
+    "decompile": true,
+    "decompiler": {
+        "input": "[[resources]]",
+        "output": "[[dest]]"
+    },
+    "input": "[[dest]]/atlases",
+    "output": "[[dest]]/sheets",
+    "manifestLocation": "[[dest]]/xml/assets_manifest.xml",
+    "copy": {
+        "lofiChar8x8": ["lofiChar"],
+        "lofiChar28x8": ["lofiChar2"],
+        "d2LofiObjEmbed": ["d2LofiObj"],
+        "d3Chars8x8rEmbed": ["d3Chars8x8r"]
+    },
+    "render": {
+        "source": "[[dest]]",
+        "dest": "[[dest]]/render-output",
+        "gameVersion": "0.0.0.0.0",
+        "buildHash": ""
+    }
+}
