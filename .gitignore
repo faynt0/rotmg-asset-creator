@@ -3,3 +3,4 @@ decompiler/
 out/
 node_modules/
 source-assets/
+spritesheet.json
