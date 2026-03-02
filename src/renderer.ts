@@ -30,7 +30,7 @@ export interface RendererConfig {
 
 // ── types ───────────────────────────────────────────────────────────
 
-type ItemData = [string, number, number, number, number, number, number, number, boolean, number];
+type ItemData = [string, number, number, number, number, number, number, number, boolean, number, boolean];
 type ClassData = [string, number[], number[], number[], number[]];
 type SkinData = [string, number, boolean, string, number];
 type TextureData = (string | number | null)[];
@@ -83,7 +83,7 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
     await fsPromises.mkdir(dest, { recursive: true });
 
     // Clean previous output
-    for (const f of ['constants.js', 'renders.png', 'sheets.js']) {
+    for (const f of ['constants.js', 'constants.json', 'renders.png', 'sheets.js', 'sheets.json']) {
         const p = path.join(dest, f);
         try { await fsPromises.unlink(p); } catch { /* ignore */ }
     }
@@ -115,8 +115,8 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
 
     // Data collections
     const items = new Map<number, ItemData>();
-    items.set(-1, ['Empty Slot', 0, -1, 5, 5, 0, 0, 0, false, 0]);
-    items.set(0, ['Unknown Item', 0, -1, 50, 5, 0, 0, 0, false, 0]);
+    items.set(-1, ['Empty Slot', 0, -1, 5, 5, 0, 0, 0, false, 0, false]);
+    items.set(0, ['Unknown Item', 0, -1, 50, 5, 0, 0, 0, false, 0, false]);
 
     const classes = new Map<number, ClassData>();
     const skins = new Map<number, SkinData>();
@@ -554,7 +554,9 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                         renderCtx.fillText(num, tx, ty);
                     }
 
-                    items.set(typeNum, [displayName, slot, tier, dx, dy, xp, fp, bagType, soulbound, utst]);
+                    const labels = obj.Labels != null ? (getTextContent(obj.Labels) ?? '') : '';
+                    const shiny = /\bSHINY\b/i.test(labels) || /shiny/i.test(objId);
+                    items.set(typeNum, [displayName, slot, tier, dx, dy, xp, fp, bagType, soulbound, utst, shiny]);
                     imgx++;
                     if (imgx >= GRID) {
                         imgx = 0;
@@ -627,7 +629,7 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
     cjs += `rendersVersion = "renders-${timestamp}-${GAME_VERSION}";\n\n`;
 
     // items
-    cjs += '//   type: ["id", SlotType, Tier, x, y, FameBonus, feedPower, BagType, Soulbound, UT/ST],\n';
+    cjs += '//   type: ["id", SlotType, Tier, x, y, FameBonus, feedPower, BagType, Soulbound, UT/ST, Shiny],\n';
     cjs += 'items = {\n';
     for (const [id, data] of [...items.entries()].sort((a, b) => a[0] - b[0])) {
         const formatted = formatJsArray(data);
@@ -689,6 +691,38 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
 
     await fsPromises.writeFile(path.join(dest, 'constants.js'), cjs, 'utf-8');
 
+    // ── Write constants.json ────────────────────────────────────────
+    console.log('+ Writing constants.json');
+    const jsonExport: Record<string, any> = {
+        version: `renders-${timestamp}-${GAME_VERSION}`,
+        gameVersion: GAME_VERSION,
+        buildHash: BUILD_HASH || undefined,
+        items: Object.fromEntries([...items.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, {
+            name: d[0], technicalName: d[10] ? d[0] + ' Shiny' : d[0],
+            slotType: d[1], tier: d[2], x: d[3], y: d[4],
+            fameBonus: d[5], feedPower: d[6], bagType: d[7], isSoulbound: d[8], utst: d[9],
+            isShiny: d[10],
+        }])),
+        classes: Object.fromEntries([...classes.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, {
+            name: d[0], base: d[1], averages: d[2], maxes: d[3], slots: d[4],
+        }])),
+        skins: Object.fromEntries([...skins.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, {
+            name: d[0], index: d[1], is16x16: d[2], sheet: d[3], classType: d[4],
+        }])),
+        petAbilities: Object.fromEntries([...petAbilities.entries()].sort((a, b) => a[0] - b[0])),
+        textures: Object.fromEntries([...textures.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, {
+            clothingId: d[0], clothingType: d[1], accessoryId: d[2], accessoryType: d[3],
+        }])),
+        pets: Object.fromEntries([...pets.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, {
+            name: d[0], family: d[1], rarity: d[2], defaultSkin: d[3], size: d[4],
+        }])),
+        petSkins: Object.fromEntries([...petSkins.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, {
+            name: d[0], displayId: d[1], itemTier: d[2], family: d[3], rarity: d[4],
+            animIndex: d[5], is16x16: d[6], sheet: d[7],
+        }])),
+    };
+    await fsPromises.writeFile(path.join(dest, 'constants.json'), JSON.stringify(jsonExport, null, 2), 'utf-8');
+
     // ── Write renders.png ───────────────────────────────────────────
     console.log('+ Writing renders.png');
     await fsPromises.writeFile(path.join(dest, 'renders.png'), finalRender.toBuffer('image/png'));
@@ -744,6 +778,44 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
     sjs += `renders = 'data:image/png;base64,${renderBuffer.toString('base64')}';\n`;
 
     await fsPromises.writeFile(path.join(dest, 'sheets.js'), sjs, 'utf-8');
+
+    // ── Write sheets.json ────────────────────────────────────────────
+    console.log('+ Writing sheets.json');
+    const sheetsJson: Record<string, any> = {
+        textiles: {} as Record<number, string>,
+        skinsheets: {} as Record<string, string>,
+        petskinsheets: {} as Record<string, string>,
+        renders: '',
+    };
+
+    for (const tf of [...textileFiles].sort((a, b) => a - b)) {
+        try {
+            const data = await fsPromises.readFile(path.join(IMAGE_DIR, `textile${tf}x${tf}.png`));
+            sheetsJson.textiles[tf] = `data:image/png;base64,${data.toString('base64')}`;
+        } catch { /* skip missing */ }
+    }
+
+    for (const sf of [...skinFiles].sort()) {
+        try {
+            const data = await fsPromises.readFile(path.join(IMAGE_DIR, sf + '.png'));
+            sheetsJson.skinsheets[sf] = `data:image/png;base64,${data.toString('base64')}`;
+        } catch { /* skip missing */ }
+        try {
+            const maskData = await fsPromises.readFile(path.join(IMAGE_DIR, sf + '_mask.png'));
+            sheetsJson.skinsheets[sf + 'Mask'] = `data:image/png;base64,${maskData.toString('base64')}`;
+        } catch { /* mask may not exist */ }
+    }
+
+    for (const psf of [...petSkinFiles].sort()) {
+        try {
+            const data = await fsPromises.readFile(path.join(IMAGE_DIR, psf + '.png'));
+            sheetsJson.petskinsheets[psf] = `data:image/png;base64,${data.toString('base64')}`;
+        } catch { /* skip missing */ }
+    }
+
+    sheetsJson.renders = `data:image/png;base64,${renderBuffer.toString('base64')}`;
+
+    await fsPromises.writeFile(path.join(dest, 'sheets.json'), JSON.stringify(sheetsJson, null, 2), 'utf-8');
 
     console.log(`+ Renderer complete. ${items.size} items, ${classes.size} classes, ${skins.size} skins.`);
 }
