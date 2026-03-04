@@ -98,10 +98,12 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
         return imageCache.get(name)!;
     }
 
-    // Render canvas (100 × 100 grid of 45×45 cells with 5px gutter)
+    // Render canvas (100-column grid of 45×45 cells with 5px gutter)
+    // Height is pre-allocated for up to 200 rows to handle large item sets.
     const GRID = 100;
+    const MAX_ROWS = 200;
     const CELL = 45;
-    const render = createCanvas(CELL * GRID + 5, CELL * GRID + 5);
+    const render = createCanvas(CELL * GRID + 5, CELL * MAX_ROWS + 5);
     const renderCtx = render.getContext('2d');
 
     // black 40×40 image for shadow
@@ -138,6 +140,10 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
         renderCtx.fillStyle = 'red';
         renderCtx.fillRect(50, 5, 40, 40);
     }
+
+    // Cache for deduplicating invalid-textile mask renders.
+    // Key: "<maskFile>:<maskIndex>:<tex1|tex2>"  →  [dx, dy] of the first render.
+    const invalidTexCache = new Map<string, [number, number]>();
 
     // ── Gather and process XML ──────────────────────────────────────
 
@@ -310,6 +316,28 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                         }
                     }
 
+                    const labels = obj.Labels != null ? (getTextContent(obj.Labels) ?? '') : '';
+                    const shiny = /\bSHINY\b/i.test(labels) || /shiny/i.test(objId);
+
+                    // Reuse an already-rendered invalid-textile mask sprite instead of
+                    // drawing another identical one.
+                    if (obj.Mask && (obj.Tex1 != null || obj.Tex2 != null)) {
+                        const rawTex = getTextContent(obj.Tex1 != null ? obj.Tex1 : obj.Tex2);
+                        if (rawTex) {
+                            const [ta, tr, tg] = argbSplit(parseHexOrDec(rawTex));
+                            if (ta !== 1 && (tr > 0 || tg > 0)) {
+                                const mfKey = getTextContent(obj.Mask.File) ?? '';
+                                const miKey = String(parseHexOrDec(getTextContent(obj.Mask.Index) ?? '0'));
+                                const tcKey = obj.Tex1 != null ? 'tex1' : 'tex2';
+                                const cached = invalidTexCache.get(`${mfKey}:${miKey}:${tcKey}`);
+                                if (cached) {
+                                    items.set(typeNum, [displayName, slot, tier, cached[0], cached[1], xp, fp, bagType, soulbound, utst, shiny]);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     // Determine image source
                     let imageName: string;
                     let imageIndex: number;
@@ -326,7 +354,7 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                     const normalIndex = ![
                         'playerskins', 'oryxSanctuaryChars32x32', 'chars8x8dEncounters',
                         'chars8x8rPets1', 'chars16x16dEncounters2', 'characters',
-                        'petsDivine', 'epicHiveChars16x16', 'playerskins16',
+                        'petsDivine', 'epicHiveChars16x16', 'playerskins16', 'playerskins32',
                     ].includes(imageName);
 
                     let img: Image;
@@ -454,9 +482,12 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                         maskCtx.drawImage(maskImg, msrcx, msrcy, imgTileSize, imgTileSize, 4, 4, 32, 32);
 
                         // Determine tex color/texture
+                        // isTex1 = large clothes (Tex1), false = small clothes (Tex2)
                         let texStr: string | undefined;
+                        let isTex1 = false;
                         if (obj.Tex1 != null) {
                             texStr = getTextContent(obj.Tex1);
+                            isTex1 = true;
                         } else if (obj.Tex2 != null) {
                             texStr = getTextContent(obj.Tex2);
                         }
@@ -475,38 +506,40 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                             } else {
                                 // Textile
                                 if (r > 0 || g > 0) {
-                                    //console.warn(`  Invalid texture for ${displayName}, using red fallback`);
+                                    // Invalid textile value – fill mask with error color:
+                                    //   Tex1 (large clothes) → red
+                                    //   Tex2 (small clothes) → green
                                     fillCanvas = createCanvas(40, 40);
                                     const fCtx = fillCanvas.getContext('2d');
-                                    fCtx.fillStyle = 'red';
+                                    fCtx.fillStyle = isTex1 ? '#ff0000' : '#08e200';
                                     fCtx.fillRect(0, 0, 40, 40);
                                 } else {
-                                    textileFiles.add(a);
-                                    let texImg: Image;
-                                    try {
-                                        texImg = await loadSheetImage(`textile${a}x${a}`);
-                                    } catch {
-                                        console.warn(`  Could not load textile${a}x${a}`);
-                                        continue;
-                                    }
-                                    const tsrcw = texImg.width / a;
-                                    const tsrcx = a * (b % tsrcw);
-                                    const tsrcy = a * Math.floor(b / tsrcw);
-                                    // Tile the textile to fill 40×40
-                                    fillCanvas = createCanvas(40, 40);
-                                    const fCtx = fillCanvas.getContext('2d');
-                                    fCtx.imageSmoothingEnabled = false;
-                                    // First extract the tile
-                                    const tileCanvas = createCanvas(a, a);
-                                    const tileCtx = tileCanvas.getContext('2d');
-                                    tileCtx.drawImage(texImg, tsrcx, tsrcy, a, a, 0, 0, a, a);
-                                    // Tile it
-                                    for (let ty = 0; ty < 40; ty += a) {
-                                        for (let tx = 0; tx < 40; tx += a) {
-                                            fCtx.drawImage(tileCanvas, tx, ty);
-                                        }
+                                textileFiles.add(a);
+                                let texImg: Image;
+                                try {
+                                    texImg = await loadSheetImage(`textile${a}x${a}`);
+                                } catch {
+                                    console.warn(`  Could not load textile${a}x${a}`);
+                                    continue;
+                                }
+                                const tsrcw = texImg.width / a;
+                                const tsrcx = a * (b % tsrcw);
+                                const tsrcy = a * Math.floor(b / tsrcw);
+                                // Tile the textile to fill 40×40
+                                fillCanvas = createCanvas(40, 40);
+                                const fCtx = fillCanvas.getContext('2d');
+                                fCtx.imageSmoothingEnabled = false;
+                                // First extract the tile
+                                const tileCanvas = createCanvas(a, a);
+                                const tileCtx = tileCanvas.getContext('2d');
+                                tileCtx.drawImage(texImg, tsrcx, tsrcy, a, a, 0, 0, a, a);
+                                // Tile it
+                                for (let ty = 0; ty < 40; ty += a) {
+                                    for (let tx = 0; tx < 40; tx += a) {
+                                        fCtx.drawImage(tileCanvas, tx, ty);
                                     }
                                 }
+                                } // end valid textile
                             }
 
                             // Apply mask (draw allblack with mask alpha, then fill with mask)
@@ -535,6 +568,16 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                             renderCtx.drawImage(fillMasked, dx, dy);
 
                             renderCtx.restore();
+
+                            // On the first render of an invalid-textile mask, record the
+                            // sprite position so subsequent identical items can reuse it.
+                            if (a !== 1 && (r > 0 || g > 0)) {
+                                const tcKey = isTex1 ? 'tex1' : 'tex2';
+                                const ck = `${maskName}:${maskIndex}:${tcKey}`;
+                                if (!invalidTexCache.has(ck)) {
+                                    invalidTexCache.set(ck, [dx, dy]);
+                                }
+                            }
                         }
                     }
 
@@ -554,8 +597,6 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                         renderCtx.fillText(num, tx, ty);
                     }
 
-                    const labels = obj.Labels != null ? (getTextContent(obj.Labels) ?? '') : '';
-                    const shiny = /\bSHINY\b/i.test(labels) || /shiny/i.test(objId);
                     items.set(typeNum, [displayName, slot, tier, dx, dy, xp, fp, bagType, soulbound, utst, shiny]);
                     imgx++;
                     if (imgx >= GRID) {
