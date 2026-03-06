@@ -126,6 +126,7 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
     const textures = new Map<number, TextureData>();
     const pets = new Map<number, PetData>();
     const petSkins = new Map<number, PetSkinData>();
+    const enchantments = new Map<number, {displayId: string, description: string, x: number, y: number}>();
 
     const skinFiles = new Set<string>(['players']);
     const textileFiles = new Set<number>();
@@ -144,6 +145,32 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
     // Cache for deduplicating invalid-textile mask renders.
     // Key: "<maskFile>:<maskIndex>:<tex1|tex2>"  →  [dx, dy] of the first render.
     const invalidTexCache = new Map<string, [number, number]>();
+
+    // Pre-scan playerskins32.png once to determine actual pixel bounds per skin index.
+    // Each slot is 32px tall (frameHeight from extraction); sprites may be 8×8, 16×16, or 32×32.
+    const ps32BoundsMap = new Map<number, { w: number; h: number }>();
+    try {
+        const ps32Img = await loadSheetImage('playerskins32');
+        const ps32Canvas = createCanvas(ps32Img.width, ps32Img.height);
+        const ps32Ctx = ps32Canvas.getContext('2d');
+        ps32Ctx.drawImage(ps32Img, 0, 0);
+        const ps32Data = ps32Ctx.getImageData(0, 0, ps32Img.width, ps32Img.height);
+        const slotH = 32;
+        const numSlots = Math.floor(ps32Img.height / slotH);
+        for (let idx = 0; idx < numSlots; idx++) {
+            let maxW = 0, maxH = 0;
+            const rowOff = idx * slotH;
+            for (let row = 0; row < slotH; row++) {
+                for (let col = 0; col < ps32Img.width; col++) {
+                    if (ps32Data.data[((rowOff + row) * ps32Img.width + col) * 4 + 3] > 0) {
+                        if (col + 1 > maxW) maxW = col + 1;
+                        if (row + 1 > maxH) maxH = row + 1;
+                    }
+                }
+            }
+            if (maxW > 0) ps32BoundsMap.set(idx, { w: maxW, h: maxH });
+        }
+    } catch { /* sheet may not exist yet */ }
 
     // ── Gather and process XML ──────────────────────────────────────
 
@@ -280,8 +307,8 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                     textures.set(texKey, entry);
                 }
 
-                // ── Equipment / Dye (item render) ───────────────────
-                if (clazz === 'Equipment' || clazz === 'Dye') {
+                // ── Equipment / Dye / Emote (item render) ───────────────────
+                if (clazz === 'Equipment' || clazz === 'Dye' || clazz === 'Emote') {
                     const bagType = obj.BagType != null ? parseInt(getTextContent(obj.BagType)!, 10) : 0;
 
                     let displayName: string;
@@ -366,23 +393,39 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                     }
 
                     let imgTileSize = 8;
-                    if (imageName.includes('16') || imageName === 'petsDivine') {
+                    if (imageName === 'playerskins32') {
+                        imgTileSize = 32; // stand frame is 16×16; name contains '32' only because attack frames can be larger
+                    } else if (imageName.includes('16') || imageName === 'petsDivine') {
                         imgTileSize = 16;
-                    } else if (imageName.includes('32')) {
-                        imgTileSize = 32;
+                    }
+
+                    if (clazz === 'Emote') {
+                        imgTileSize = 16;
                     }
 
                     let srcx: number, srcy: number;
+                    let srcW: number, srcH: number;
                     if (normalIndex) {
                         const srcw = img.width / imgTileSize;
                         srcx = imgTileSize * (imageIndex % srcw);
                         srcy = imgTileSize * Math.floor(imageIndex / srcw);
-                    } else if (imageName === 'playerskins' || imageName === 'characters') {
+                    } else if (imageName === 'playerskins' || imageName === 'playerskins16' || imageName === 'characters') {
                         srcx = 0;
                         srcy = 3 * imgTileSize * imageIndex;
+                    } else if (imageName === 'playerskins32') {
+                        srcx = 0;
+                        srcy = imgTileSize * imageIndex; // imgTileSize=32, so stride = 32px per slot
                     } else {
                         srcx = 0;
                         srcy = imgTileSize * imageIndex;
+                    }
+
+                    // Resolve actual source dimensions (allows per-sprite size for playerskins32)
+                    srcW = imgTileSize;
+                    srcH = imgTileSize;
+                    if (imageName === 'playerskins32') {
+                        const bounds = ps32BoundsMap.get(imageIndex);
+                        if (bounds) { srcW = bounds.w; srcH = bounds.h; }
                     }
 
                     // Draw the item icon onto the render canvas
@@ -393,8 +436,8 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                     const iconCanvas = createCanvas(40, 40);
                     const iconCtx = iconCanvas.getContext('2d');
                     iconCtx.imageSmoothingEnabled = false;
-                    // 4px border → draw at (4,4) as 32×32
-                    iconCtx.drawImage(img, srcx, srcy, imgTileSize, imgTileSize, 4, 4, 32, 32);
+                    // 4px border → draw at (4,4) as 32×32; srcW/srcH scale sprite to fill regardless of native size
+                    iconCtx.drawImage(img, srcx, srcy, srcW, srcH, 4, 4, 32, 32);
 
                     // Edge detection for shadow (alpha channel dilate via max filter 3×3)
                     const edgeCanvas = createCanvas(40, 40);
@@ -641,6 +684,114 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
                 }
             }
         }
+
+        if (rootKey === 'Enchantments' && root.Enchantment) {
+            const enchantmentsList = ensureArray(root.Enchantment);
+
+            for (const ench of enchantmentsList) {
+                const enchType = parseHexOrDec(ench['@_type'] ?? '');
+                const displayId = getTextContent(ench.DisplayId) ?? '';
+                const description = getTextContent(ench.Description) ?? '';
+
+                if (!ench.Texture) continue;
+                const imageName = getTextContent(ench.Texture.File)!;
+                const imageIndex = parseHexOrDec(getTextContent(ench.Texture.Index)!);
+
+                // Load image
+                let img: Image;
+                try {
+                    img = await loadSheetImage(imageName);
+                } catch {
+                    console.warn(`  Warning: could not load sheet ${imageName}, skipping ${displayId}`);
+                    continue;
+                }
+
+                const imgTileSize = 16;
+                const srcw = img.width / imgTileSize;
+                const srcx = imgTileSize * (imageIndex % srcw);
+                const srcy = imgTileSize * Math.floor(imageIndex / srcw);
+
+                // Draw the icon onto the render canvas
+                const dx = imgx * CELL + 5;
+                const dy = imgy * CELL + 5;
+
+                // Create a temp canvas to resize and add border
+                const iconCanvas = createCanvas(40, 40);
+                const iconCtx = iconCanvas.getContext('2d');
+                iconCtx.imageSmoothingEnabled = false;
+                // 4px border → draw at (4,4) as 32×32
+                iconCtx.drawImage(img, srcx, srcy, imgTileSize, imgTileSize, 4, 4, 32, 32);
+
+                // Edge detection for shadow (alpha channel dilate via max filter 3×3)
+                const iconPixels = iconCtx.getImageData(0, 0, 40, 40);
+                const alpha = new Uint8Array(40 * 40);
+                for (let i = 0; i < 40 * 40; i++) alpha[i] = iconPixels.data[i * 4 + 3];
+
+                // Max filter radius 1 (3×3)
+                const dilated = new Uint8Array(40 * 40);
+                for (let py = 0; py < 40; py++) {
+                    for (let px = 0; px < 40; px++) {
+                        let maxVal = 0;
+                        for (let ky = -1; ky <= 1; ky++) {
+                            for (let kx = -1; kx <= 1; kx++) {
+                                const ny = py + ky, nx = px + kx;
+                                if (ny >= 0 && ny < 40 && nx >= 0 && nx < 40) {
+                                    maxVal = Math.max(maxVal, alpha[ny * 40 + nx]);
+                                }
+                            }
+                        }
+                        dilated[py * 40 + px] = maxVal;
+                    }
+                }
+
+                // Box blur radius 7 for shadow (approximated as 15×15 box)
+                const blurred = new Uint8Array(40 * 40);
+                const R = 7;
+                for (let py = 0; py < 40; py++) {
+                    for (let px = 0; px < 40; px++) {
+                        let sum = 0, count = 0;
+                        for (let ky = -R; ky <= R; ky++) {
+                            for (let kx = -R; kx <= R; kx++) {
+                                const ny = py + ky, nx = px + kx;
+                                if (ny >= 0 && ny < 40 && nx >= 0 && nx < 40) {
+                                    sum += dilated[ny * 40 + nx];
+                                    count++;
+                                }
+                            }
+                        }
+                        blurred[py * 40 + px] = Math.floor(sum / count / 2);
+                    }
+                }
+
+                // Draw shadow (allblack with blurred alpha)
+                const shadowData = renderCtx.createImageData(40, 40);
+                for (let i = 0; i < 40 * 40; i++) {
+                    shadowData.data[i * 4 + 3] = blurred[i];
+                }
+                const shadowCanvas = createCanvas(40, 40);
+                shadowCanvas.getContext('2d').putImageData(shadowData, 0, 0);
+                renderCtx.drawImage(shadowCanvas, dx, dy);
+
+                // Draw edge (allblack with dilated alpha)
+                const edgeData = renderCtx.createImageData(40, 40);
+                for (let i = 0; i < 40 * 40; i++) {
+                    edgeData.data[i * 4 + 3] = dilated[i];
+                }
+                const edgeShadowCanvas = createCanvas(40, 40);
+                edgeShadowCanvas.getContext('2d').putImageData(edgeData, 0, 0);
+                renderCtx.drawImage(edgeShadowCanvas, dx, dy);
+
+                // Draw the icon itself (cropped 1px border → 38×38 placed at +1,+1)
+                renderCtx.drawImage(iconCanvas, 1, 1, 38, 38, dx + 1, dy + 1, 38, 38);
+
+                enchantments.set(enchType, { displayId, description, x: dx, y: dy });
+                imgx++;
+                if (imgx >= GRID) {
+                    imgx = 0;
+                    imgy++;
+                }
+            }
+        }
     }
 
     // ── Crop render to actual size ──────────────────────────────────
@@ -761,6 +912,7 @@ export async function runRenderer(cfg: RendererConfig): Promise<void> {
             name: d[0], displayId: d[1], itemTier: d[2], family: d[3], rarity: d[4],
             animIndex: d[5], is16x16: d[6], sheet: d[7],
         }])),
+        enchantments: Object.fromEntries([...enchantments.entries()].sort((a, b) => a[0] - b[0])),
     };
     await fsPromises.writeFile(path.join(dest, 'constants.json'), JSON.stringify(jsonExport, null, 2), 'utf-8');
 

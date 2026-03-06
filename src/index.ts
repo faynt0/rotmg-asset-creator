@@ -7,11 +7,13 @@ import * as flatbuffers from 'flatbuffers';
 import { Deca } from './schema';
 import { extractAssets } from './unity-asset-parser';
 import { runRenderer } from './renderer';
+import { dir } from 'console';
 
 const args = argv.slice(2);
 
 const sheets = new Map<string, SpriteAtlas>();
 const atlases: UnityAtlas[] = []
+const seenPlayerskins32 = new Set<string>();
 
 const cli_params = {
 	"resources": undefined,
@@ -273,9 +275,26 @@ function setAnimated(sprite: SpriteData, manifest) {
     if (/(16x16)/g.test(sprite.spriteSheetName)) {
         frameWidth = frameHeight = 16;
     } else if (/(32x32)/g.test(sprite.spriteSheetName)) {
-        frameWidth = frameHeight = 16;
+        frameWidth = frameHeight = 32;
+    }
+
+    if (spriteSheetName === 'playerskins32') {
+        // Standing frames are 16×16; use same frame dimensions as playerskins16.
+        frameWidth = 112;
+        frameHeight = 32;
     }
     
+    if (spriteSheetName === 'playerskins32' && !(sprite.direction === 0 && sprite.action === 0)) {
+        return;
+    }
+
+    // For playerskins32 only keep the very first animation frame per skin index.
+    if (spriteSheetName === 'playerskins32') {
+        const key = `playerskins32+${sprite.index}`;
+        if (seenPlayerskins32.has(key)) return;
+        seenPlayerskins32.add(key);
+    }
+
     if (!sheets.has(spriteSheetName)) {
         sheets.set(spriteSheetName, new AnimatedSpriteAtlas(sprite.position.w, sprite.position.h, frameWidth, frameHeight, null));
     }
@@ -411,19 +430,6 @@ class AnimatedSpriteAtlas extends SpriteAtlas {
         const sheetPos = {
             x: (action == 2) ? this.spriteWidth * 4 : 0,
             y: sprite.index * this.frameHeight
-        }
-
-        if (this.playerSheet) {
-            let dirMult = 0;
-            switch(direction) {
-                case 2:
-                    dirMult = 2;
-                    break;
-                case 3:
-                    dirMult = 1;
-                    break;
-            }
-            sheetPos.y += this.spriteHeight * dirMult;
         }
 
         sheetPos.x += (this.animCounter.get(spriteKey) * this.spriteWidth);
